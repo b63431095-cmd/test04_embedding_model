@@ -55,14 +55,21 @@
     /* Token 統計列 */
     #token-bar {
       background-color: var(--token-bg);
-      padding: 6px 12px;
+      padding: 8px 12px;
       text-align: center;
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       color: #174ea6;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: center;
-      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .token-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
     }
 
     /* 對話區域 */
@@ -96,6 +103,7 @@
     /* 時間與 Token 標籤列 */
     .message-info {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       font-size: 0.75rem;
       color: var(--time-color);
@@ -211,7 +219,15 @@
 
   <!-- Token 統計面板 -->
   <div id="token-bar">
-    <span>📊 本案當前對話 Token 總量: <strong id="session-tokens">0</strong></span>
+    <span class="token-item">📥 Input: <strong id="session-input-tokens">0</strong></span>
+    <span>|</span>
+    <span class="token-item">📤 Output: <strong id="session-output-tokens">0</strong></span>
+    <span>|</span>
+    <span class="token-item">🧩 Embedding: <strong id="session-embedding-tokens">0</strong></span>
+    <span>|</span>
+    <span class="token-item">📊 總計: <strong id="session-total-tokens">0</strong></span>
+    <span>|</span>
+    <span class="token-item">💰 預估費用: <strong id="session-cost">$0.000000 USD (NT$0.00)</strong></span>
   </div>
 
   <main id="chat-container"></main>
@@ -226,10 +242,21 @@
   <script>
     const GAS_WEB_APP_URL = "https://floral-lake-f8fd-test04.b63431095.workers.dev";
 
+    // 費率設定（Gemini 3.6 Flash Paid Tier, 每 1M Tokens）
+    const PRICE_INPUT_PER_1M = 0.75;
+    const PRICE_OUTPUT_PER_1M = 3.75;
+    const USD_TO_TWD = 32.0; // 預設匯率
+
     const chatContainer = document.getElementById('chat-container');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
-    const sessionTokensEl = document.getElementById('session-tokens');
+    
+    // 統計 DOM 元素
+    const sessionInputTokensEl = document.getElementById('session-input-tokens');
+    const sessionOutputTokensEl = document.getElementById('session-output-tokens');
+    const sessionEmbeddingTokensEl = document.getElementById('session-embedding-tokens');
+    const sessionTotalTokensEl = document.getElementById('session-total-tokens');
+    const sessionCostEl = document.getElementById('session-cost');
 
     let conversationHistory = [];
 
@@ -255,7 +282,12 @@
 
     function resetConversation(showAlert = false) {
       conversationHistory = [];
-      sessionTokensEl.innerText = '0';
+      sessionInputTokensEl.innerText = '0';
+      sessionOutputTokensEl.innerText = '0';
+      sessionEmbeddingTokensEl.innerText = '0';
+      sessionTotalTokensEl.innerText = '0';
+      sessionCostEl.innerText = '$0.000000 USD (NT$0.00)';
+      
       userInput.style.height = '44px';
       chatContainer.innerHTML = '';
       appendMessage('ai', '🔄 已成功開立新案件！您可以開始輸入全新案件的事故資訊。');
@@ -296,16 +328,38 @@
         if (data.reply) {
           aiBubbleTextEl.innerText = data.reply;
 
-          // 更新最新單次與累積對話 Token 總數（使用 API 回傳之總額，避免重複累計）
+          // 解析與更新 Token 使用量
           if (data.usage) {
-            const currentTotalTokens = data.usage.totalTokens || 0;
-            sessionTokensEl.innerText = currentTotalTokens.toLocaleString();
-            aiTokenEl.innerText = `Tokens: ${currentTotalTokens}`;
+            const inputTokens = data.usage.inputTokens || 0;
+            const outputTokens = data.usage.outputTokens || 0;
+            const embeddingTokens = data.usage.embeddingTokens || 0;
+            const totalTokens = data.usage.totalTokens || (inputTokens + outputTokens + embeddingTokens);
+
+            // 計算預估費用 (USD & TWD)
+            const inputCostUSD = (inputTokens / 1000000) * PRICE_INPUT_PER_1M;
+            const outputCostUSD = (outputTokens / 1000000) * PRICE_OUTPUT_PER_1M;
+            const totalCostUSD = inputCostUSD + outputCostUSD;
+            const totalCostTWD = totalCostUSD * USD_TO_TWD;
+
+            // 更新頂部全域統計儀表板
+            sessionInputTokensEl.innerText = inputTokens.toLocaleString();
+            sessionOutputTokensEl.innerText = outputTokens.toLocaleString();
+            sessionEmbeddingTokensEl.innerText = embeddingTokens.toLocaleString();
+            sessionTotalTokensEl.innerText = totalTokens.toLocaleString();
+            sessionCostEl.innerText = `$${totalCostUSD.toFixed(6)} USD (NT$${totalCostTWD.toFixed(4)})`;
+
+            // 更新對話框底部的單次 Token 明細
+            aiTokenEl.innerText = `Token 明細: In ${inputTokens.toLocaleString()} | Out ${outputTokens.toLocaleString()} | Emb ${embeddingTokens.toLocaleString()} | 總計 ${totalTokens.toLocaleString()}`;
           }
 
           if (isResetCmd) {
             conversationHistory = [];
-            sessionTokensEl.innerText = '0';
+            sessionInputTokensEl.innerText = '0';
+            sessionOutputTokensEl.innerText = '0';
+            sessionEmbeddingTokensEl.innerText = '0';
+            sessionTotalTokensEl.innerText = '0';
+            sessionCostEl.innerText = '$0.000000 USD (NT$0.00)';
+            
             const noticeEl = document.createElement('div');
             noticeEl.className = 'system-notice';
             noticeEl.innerText = "─── 本案已結案，對話記憶與 Token 統計已自動重置 ───";
